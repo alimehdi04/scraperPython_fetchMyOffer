@@ -8,7 +8,7 @@ async def test_scraper():
     
     # The payload we are sending (simulating Spring Boot's request)
     payload = {
-        "query": "Java Intern",
+        "query": "Machine Learning Intern",
         "location": "India",
         # We use httpbin.org as a temporary dummy receiver for the webhook
         "callback_url": "https://httpbin.org/post", 
