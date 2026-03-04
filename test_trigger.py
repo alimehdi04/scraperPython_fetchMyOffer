@@ -8,10 +8,10 @@ async def test_scraper():
     
     # The payload we are sending (simulating Spring Boot's request)
     payload = {
-        "query": "Machine Learning Intern",
+        "query": "Java Spring Boot Intern",
         "location": "India",
         # We use httpbin.org as a temporary dummy receiver for the webhook
-        "callback_url": "https://httpbin.org/post", 
+        "callback_url": "http://localhost:8080/api/v1/webhooks/scrape-results", 
         "job_id": f"job-{uuid.uuid4().hex[:8]}"
     }
 
