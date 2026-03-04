@@ -1,5 +1,5 @@
-# Use the official Python image as the base
-FROM python:3.11-slim
+# Use the official Microsoft Playwright image (has all OS dependencies pre-installed!)
+FROM mcr.microsoft.com/playwright/python:v1.42.0-jammy
 
 # Set the working directory inside the container
 WORKDIR /app
@@ -10,9 +10,8 @@ COPY requirements.txt .
 # Install the Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright and the OS dependencies required for Chromium
+# Install the Chromium browser binaries
 RUN playwright install chromium
-RUN playwright install-deps chromium
 
 # Copy the rest of your application code into the container
 COPY . .
