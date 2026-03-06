@@ -4,10 +4,9 @@ from typing import List, Optional
 import httpx
 import asyncio
 import sys
+import urllib.parse
 from playwright.async_api import async_playwright
-
-# if sys.platform == "win32":
-#     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+from playwright_stealth import Stealth
 
 app = FastAPI(title="AI Opportunity Hunter - Scraper Worker")
 
@@ -15,6 +14,7 @@ app = FastAPI(title="AI Opportunity Hunter - Scraper Worker")
 class ScrapeRequest(BaseModel):
     query: str
     location: Optional[str] = "India"
+    platform: Optional[str] = "internshala" # 🛑 NEW FIELD
     callback_url: str
     job_id: str
 
@@ -24,6 +24,121 @@ class JobResult(BaseModel):
     url: str
     description: str
 
+
+async def scrape_naukri(query: str) -> List[dict]:
+    print(f"[*] Starting Playwright for Naukri query: {query}")
+    jobs = []
+    
+    formatted_query = query.replace(" ", "-").lower()
+    target_url = f"https://www.naukri.com/{formatted_query}-jobs"
+    
+    keywords = [word.lower() for word in query.split()]
+
+    # 🛑 THE NEW STEALTH V2 API WRAPPER
+    async with Stealth().use_async(async_playwright()) as p:
+        
+        # Keep the arguments to hide automation
+        browser = await p.chromium.launch(
+            headless=True,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--window-size=1920,1080"
+            ]
+        )
+        
+        # Spoof realistic browser headers
+        context = await browser.new_context(
+            viewport={'width': 1920, 'height': 1080},
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            extra_http_headers={
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8"
+            }
+        )
+        
+        # Because we used Stealth().use_async() above, EVERY page created 
+        # in this context automatically has 100% stealth injected into it!
+        page = await context.new_page()
+        
+        try:
+            # We still pass the referer to look like we came from Google
+            await page.goto(target_url, timeout=60000, wait_until='domcontentloaded', referer="https://www.google.com/")
+            
+            page_title = await page.title()
+            print(f"[*] Naukri page loaded. Page Title: '{page_title}'")
+            
+            # Wait for the specific job wrapper to appear in the DOM
+            await page.wait_for_selector('.srp-jobtuple-wrapper', timeout=15000)
+            await page.wait_for_timeout(3000) # Buffer for React to finish hydrating
+            
+            jobs_data = await page.evaluate('''
+                (keywords) => {
+                    const jobs = [];
+                    const items = document.querySelectorAll('.srp-jobtuple-wrapper');
+                    
+                    items.forEach((item) => {
+                        try {
+                            const titleElem = item.querySelector('a.title');
+                            const title = titleElem ? titleElem.innerText.trim() : '';
+                            if (!title) return;
+                            
+                            const companyElem = item.querySelector('a.comp-name');
+                            const company = companyElem ? companyElem.innerText.trim() : '';
+                            
+                            let link = titleElem ? titleElem.getAttribute('href') : '';
+                            if (link && !link.startsWith('http')) {
+                                link = 'https://www.naukri.com' + link;
+                            }
+                            
+                            const detailsElem = item.querySelector('.job-details');
+                            const description = detailsElem ? detailsElem.innerText.replace(/\\n/g, ' | ') : 'Details not provided';
+                            
+                            const titleLower = title.toLowerCase();
+                            const descLower = description.toLowerCase();
+                            let isMatch = false;
+                            for (let word of keywords) {
+                                if (titleLower.includes(word) || descLower.includes(word)) {
+                                    isMatch = true;
+                                    break;
+                                }
+                            }
+                            
+                            if (!isMatch) return;
+                            
+                            jobs.push({
+                                title: title,
+                                company: company,
+                                url: link,
+                                description: description,
+                            });
+                            
+                        } catch (e) {
+                            console.error('Error parsing Naukri job:', e);
+                        }
+                    });
+                    
+                    return jobs;
+                }
+            ''', keywords)
+            
+            print(f"[*] Found {len(jobs_data)} jobs matching '{query}' on Naukri")
+            
+            for job in jobs_data:
+                jobs.append({
+                    "title": job.get('title', 'N/A'),
+                    "company": job.get('company', 'N/A'),
+                    "url": job.get('url', ''),
+                    "description": job.get('description', 'No description available')[:500] 
+                })
+            
+        except Exception as e:
+            print(f"[!] Error scraping Naukri: {e}")
+        finally:
+            await browser.close()
+            
+    return jobs
+
+
 async def scrape_internshala(query: str) -> List[dict]:
     print(f"[*] Starting Playwright for query: {query}")
     jobs = []
@@ -31,8 +146,6 @@ async def scrape_internshala(query: str) -> List[dict]:
     formatted_query = query.replace(" ", "-").lower()
     target_url = f"https://internshala.com/internships/keywords-{formatted_query}/"
     
-    # We create an array of keywords from the query to pass to JS
-    # e.g., "Java Backend Intern" -> ["java", "backend", "intern"]
     keywords = [word.lower() for word in query.split()]
 
     async with async_playwright() as p:
@@ -45,7 +158,6 @@ async def scrape_internshala(query: str) -> List[dict]:
             
             await page.wait_for_timeout(3000)
             
-            # Pass the 'keywords' array directly into the JS evaluate function
             jobs_data = await page.evaluate('''
                 (keywords) => {
                     const jobs = [];
@@ -72,12 +184,10 @@ async def scrape_internshala(query: str) -> List[dict]:
                             const descElem = item.querySelector('.about_job .text, .text');
                             const description = descElem ? descElem.innerText.trim() : '';
                             
-                            // Dynamic Filtering Logic
                             const titleLower = title.toLowerCase();
                             const companyLower = company.toLowerCase();
                             const descLower = description.toLowerCase();
                             
-                            // Check if ANY of the search keywords exist in the job text
                             let isMatch = false;
                             for (let word of keywords) {
                                 if (titleLower.includes(word) || descLower.includes(word) || companyLower.includes(word)) {
@@ -102,7 +212,7 @@ async def scrape_internshala(query: str) -> List[dict]:
                     
                     return jobs;
                 }
-            ''', keywords) # Pass the Python list to JS
+            ''', keywords)
             
             print(f"[*] Found {len(jobs_data)} jobs matching '{query}'")
             
@@ -122,9 +232,13 @@ async def scrape_internshala(query: str) -> List[dict]:
     return jobs
 
 async def process_scrape_and_callback(request: ScrapeRequest):
-    print(f"[*] Background task started for Job ID: {request.job_id}")
+    print(f"[*] Background task started for Job ID: {request.job_id} on platform: {request.platform}")
     
-    scraped_data = await scrape_internshala(request.query)
+    # --- ROUTING LOGIC ---
+    if request.platform and request.platform.lower() == "naukri":
+        scraped_data = await scrape_naukri(request.query)
+    else:
+        scraped_data = await scrape_internshala(request.query)
 
 
     # --- PRINT THE SCRAPED JOBS TO CONSOLE ---

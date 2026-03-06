@@ -3,16 +3,16 @@ import asyncio
 import uuid
 
 async def test_scraper():
-    # The URL where your FastAPI server is listening
+    # The URL where your local FastAPI server is listening
     api_url = "http://localhost:8000/api/v1/scrape"
     
     # The payload we are sending (simulating Spring Boot's request)
     payload = {
-        "query": "Java Spring Boot Intern",
+        "query": "java intern",
         "location": "India",
-        # We use httpbin.org as a temporary dummy receiver for the webhook
-        "callback_url": "http://localhost:8080/api/v1/webhooks/scrape-results", 
-        "job_id": f"job-{uuid.uuid4().hex[:8]}"
+        "platform": "naukri",  # 🛑 Testing the new Naukri routing
+        "callback_url": "https://httpbin.org/post",  # Dummy receiver for isolated testing
+        "job_id": f"test-naukri-{uuid.uuid4().hex[:8]}"
     }
 
     print(f"🚀 Sending scrape request to {api_url}...")
@@ -21,13 +21,13 @@ async def test_scraper():
     async with httpx.AsyncClient() as client:
         try:
             # 1. We make the request and wait for the immediate 202 Accepted response
-            response = await client.post(api_url, json=payload)
+            response = await client.post(api_url, json=payload, timeout=10.0)
             
             print(f"✅ Received immediate response from FastAPI:")
             print(f"Status Code: {response.status_code}")
             print(f"Response Body: {response.json()}\n")
             
-            print("⏳ Now watch your FastAPI terminal to see Playwright working in the background!")
+            print("⏳ Now watch your FastAPI terminal to see Playwright scraping Naukri in the background!")
             
         except Exception as e:
             print(f"❌ Error connecting to FastAPI: {e}")
