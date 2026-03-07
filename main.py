@@ -296,6 +296,10 @@ async def trigger_scrape(request: ScrapeRequest, background_tasks: BackgroundTas
 def health_check():
     return {"status": "Scraper is alive and ready."}
 
+@app.get("/ping")
+def ping():
+    return "pong"
+
 if __name__ == "__main__":
     import os
     import uvicorn
