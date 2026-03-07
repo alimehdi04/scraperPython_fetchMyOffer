@@ -296,7 +296,7 @@ async def trigger_scrape(request: ScrapeRequest, background_tasks: BackgroundTas
 def health_check():
     return {"status": "Scraper is alive and ready."}
 
-@app.get("/ping")
+@app.api_route("/ping", methods=["GET", "HEAD"])
 def ping():
     return "pong"
 
